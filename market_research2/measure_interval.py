@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-
+ 
 # Corrected velocity-to-interval limits mapping
 INTERVAL_LIMITS = {
     "Moon": 0.12,         # Sprinter: tight window to prevent time-blur

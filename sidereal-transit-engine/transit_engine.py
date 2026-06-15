@@ -1,3 +1,4 @@
+!pip install pyswisseph
 import datetime
 import swisseph as swe
 import pandas as pd

@@ -1,7 +1,7 @@
 import pandas as pd
 import glob
 import os
-
+ 
 # 1. Locate all ledger files in the directory
 all_files = glob.glob("ledger_*.csv")
 

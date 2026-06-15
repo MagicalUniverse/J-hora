@@ -1,51 +1,109 @@
+import datetime
+import swisseph as swe
 import pandas as pd
 
-# Threshold: Within 1 arcminute of the edge boundary line
-BORDER_THRESHOLD_DEG = 1.0 / 60.0  
+# =====================================================================
+# SYSTEM CONFIGURATION AND MASTER BASELINE LOCK
+# =====================================================================
+DEFAULT_BIRTH_DATE = "1814.05.17"
+DEFAULT_BIRTH_TIME = "12:27:12"
+DEFAULT_BIRTH_TZ   = 0.0
 
-def run_boundary_filter(csv_path="raw_market_session_ledger.csv"):
-    df_ledger = pd.read_csv(csv_path)
-    boundary_events = []
+DEFAULT_LAT = 60.3011
+DEFAULT_LON = 11.1717
+DEFAULT_ALT = 25.0
+
+# Configure Lahiri Ayanamsa for Sidereal Accuracy
+swe.set_sid_mode(swe.SIDM_LAHIRI)
+
+# Hardcode Swiss Ephemeris IDs for Lunar Nodes
+swe.RAHU, swe.KETU = 11, 12
+
+# Full-Spectrum Planetary Roster
+PLANETS_MAP = {
+    "Sun": swe.SUN, 
+    "Moon": swe.MOON, 
+    "Mars": swe.MARS, 
+    "Saturn": swe.SATURN, 
+    "Jupiter": swe.JUPITER,
+    "Mercury": swe.MERCURY,
+    "Venus": swe.VENUS,
+    "Rahu": swe.RAHU,
+    "Ketu": swe.KETU
+}
+
+def get_fine_coordinates(total_longitude):
+    """
+    Extracts raw mathematical structures for multi-layer research flexibility.
+    Calculates D1 Sign/Degrees, D9 Sign/Degrees, and Nakshatra positions.
+    """
+    # D1 Macro Layer Calculation
+    d1_sign = int(total_longitude / 30.0) + 1
+    d1_deg = total_longitude % 30.0
     
-    # Absolute planetary grid including fast items & nodes. Ascendant excluded to stop noise.
-    planetary_grid = ["Sun", "Moon", "Mars", "Mercury", "Venus", "Jupiter", "Saturn", "Rahu", "Ketu"]
+    # D9 Micro Navamsa Layer Calculation (3°20' spans per Pada)
+    pada_span = 30.0 / 9.0
+    d9_sign = (int(total_longitude / pada_span) % 12) + 1
+    d9_deg = (total_longitude % pada_span) * 9.0
     
-    for idx, row in df_ledger.iterrows():
-        time_str = row["Time"]
+    # Nakshatra Constellation Boundary Calculation (13°20' blocks)
+    nak_span = 360.0 / 27.0
+    nak_deg = total_longitude % nak_span
+    
+    return {
+        "Total": round(total_longitude, 6),
+        "D1_Sign": d1_sign, "D1_Deg": round(d1_deg, 6),
+        "D9_Sign": d9_sign, "D9_Deg": round(d9_deg, 6),
+        "Nak_Deg": round(nak_deg, 6)
+    }
+
+def calculate_chart_vector(date_str, time_str, tz_offset, lat, lon, alt):
+    """Computes coordinate positions using precise topocentric ephemeris models."""
+    base_dt = datetime.datetime.strptime(f"{date_str} {time_str}", "%Y.%m.%d %H:%M:%S")
+    utc_dt = base_dt - datetime.timedelta(hours=tz_offset)
+    
+    jd_ut = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, 
+                      utc_dt.hour + utc_dt.minute/60.0 + utc_dt.second/3600.0)
+    
+    swe.set_topo(lon, lat, alt)
+    ayan = swe.get_ayanamsa_ut(jd_ut)
+    
+    # Calculate Horizon Matrix (Houses & Ascendant)
+    cusps, ascmc = swe.houses(jd_ut, lat, lon, b'T')
+    vector = {"Ascendant": get_fine_coordinates((ascmc[0] - ayan) % 360)}
+    
+    # Loop dynamically through the complete planet map configuration
+    for name, pid in PLANETS_MAP.items():
+        res, f = swe.calc_ut(jd_ut, pid, swe.FLG_SIDEREAL | swe.FLG_TOPOCTR)
+        vector[name] = get_fine_coordinates(res[0])
         
-        for m in planetary_grid:
-            d1_deg = row[f"M_{m}_D1_Deg"]
-            nak_deg = row[f"M_{m}_Nak_Deg"]
-            nak_span = 360.0 / 27.0  # 13.3333 degrees per Nakshatra
-            
-            # 1. --- D1 SIGN CUSP CROSSING CHECK ---
-            if d1_deg <= BORDER_THRESHOLD_DEG or (30.0 - d1_deg) <= BORDER_THRESHOLD_DEG:
-                edge_val = d1_deg if d1_deg <= BORDER_THRESHOLD_DEG else (30.0 - d1_deg)
-                boundary_events.append({
-                    "Time": time_str, 
-                    "Layer": "D1 Sign Edge", 
-                    "Planet": m, 
-                    "Event": "Rashi Cusp Transition", 
-                    "Dist_To_Edge": round(edge_val, 5)
-                })
-                
-            # 2. --- NAKSHATRA / D9 SIGN CUSP CHECK ---
-            if nak_deg <= BORDER_THRESHOLD_DEG or (nak_span - nak_deg) <= BORDER_THRESHOLD_DEG:
-                edge_val = nak_deg if nak_deg <= BORDER_THRESHOLD_DEG else (nak_span - nak_deg)
-                boundary_events.append({
-                    "Time": time_str, 
-                    "Layer": "Nakshatra / D9 Edge", 
-                    "Planet": m, 
-                    "Event": "Constellation Border Crossover", 
-                    "Dist_To_Edge": round(edge_val, 5)
-                })
-                
-    return pd.DataFrame(boundary_events).drop_duplicates(subset=["Time", "Planet", "Event"])
+    return vector
 
-if __name__ == "__main__":
-    try:
-        df_borders = run_boundary_filter()
-        print("\n--- DETECTED PLANETARY BOUNDARY TRANSITIONS (D1 & NAKSHATRA/D9) ---")
-        print(df_borders.to_string(index=False))
-    except FileNotFoundError:
-        print("Error: Run transit_data_generator.py first to create the base ledger.")
+def generate_raw_research_ledger(market_date_str, market_tz, birth_override=None):
+    """
+    Generates an immutable, flat master ledger tracking absolute coordinates 
+    for every minute of the target trading session. Hides no numbers.
+    """
+    birth = birth_override if birth_override is not None else calculate_chart_vector(
+        DEFAULT_BIRTH_DATE, DEFAULT_BIRTH_TIME, DEFAULT_BIRTH_TZ, DEFAULT_LAT, DEFAULT_LON, DEFAULT_ALT
+    )
+    
+    market_base = datetime.datetime.strptime(market_date_str, "%Y.%m.%d").date()
+    current_local = datetime.datetime.combine(market_base, datetime.time(9, 0, 0))
+    end_local = datetime.datetime.combine(market_base, datetime.time(16, 20, 0))
+    
+    raw_records = []
+    
+    while current_local <= end_local:
+        time_str = current_local.strftime("%H:%M:%S")
+        transit = calculate_chart_vector(market_date_str, time_str, market_tz, DEFAULT_LAT, DEFAULT_LON, DEFAULT_ALT)
+        
+        row = {"Time": time_str}
+        
+        # Inject precise Market positions
+        for t_name, t_pos in transit.items():
+            row[f"M_{t_name}_Total"] = t_pos["Total"]
+            row[f"M_{t_name}_D1_Sign"] = t_pos["D1_Sign"]
+            row[f"M_{t_name}_D1_Deg"] = t_pos["D1_Deg"]
+            row[f"M_{t_name}_D9_Sign"] = t_pos["D9_Sign"]
+            row

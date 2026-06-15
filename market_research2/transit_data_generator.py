@@ -1,105 +1,80 @@
 import datetime
-import pandas as pd
-import sys
-
-# 1. We write the pristine, standalone script file directly
-script_content = """import datetime
 import swisseph as swe
 import pandas as pd
-import sys
 
-DEFAULT_LAT = 60.3011
-DEFAULT_LON = 11.1717
-DEFAULT_ALT = 25.0
-
+# ==============================================================================
+# GEOCENTRIC COORD LOCKED FRAMEWORK
+# ==============================================================================
+DEFAULT_LAT, DEFAULT_LON, DEFAULT_ALT = 60.3011, 11.1717, 25.0
 swe.set_sid_mode(swe.SIDM_LAHIRI)
 swe.RAHU, swe.KETU = 11, 12
 
 PLANETS_MAP = {
-    "Sun": swe.SUN,
-    "Moon": swe.MOON,
-    "Mars": swe.MARS,
-    "Saturn": swe.SATURN,
-    "Jupiter": swe.JUPITER,
-    "Mercury": swe.MERCURY,
-    "Venus": swe.VENUS,
-    "Rahu": swe.RAHU,
-    "Ketu": swe.KETU
+    "Sun": swe.SUN, "Moon": swe.MOON, "Mars": swe.MARS,
+    "Saturn": swe.SATURN, "Jupiter": swe.JUPITER, "Mercury": swe.MERCURY,
+    "Venus": swe.VENUS, "Rahu": swe.RAHU, "Ketu": swe.KETU
 }
 
-def get_fine_coordinates(total_longitude):
-    sign = int(total_longitude / 30.0) + 1
-    abs_deg = total_longitude % 30.0
+def deconstruct_to_dms(total_longitude):
+    """Translates raw absolute longitudes strictly into Sign, Deg, Min, Sec."""
+    norm_lon = total_longitude % 360.0
+    sign = int(norm_lon / 30.0) + 1
+    abs_deg = norm_lon % 30.0
     
     total_minutes = abs_deg * 60.0
     deg = int(abs_deg)
-    
-    total_seconds = (total_minutes - int(total_minutes)) * 60.0
     minute = int(total_minutes)
-    second = round(total_seconds, 2)
+    second = round((total_minutes - minute) * 60.0, 2)
     
-    pada_span = 30.0 / 9.0
-    d9_sign = (int(total_longitude / pada_span) % 12) + 1
-    d9_deg = (total_longitude % pada_span) * 9.0
-    
-    nak_span = 360.0 / 27.0
-    nak_deg = total_longitude % nak_span
-    
-    return {
-        "Total": round(total_longitude, 6), "Sign": sign, "Deg": deg, "Min": minute, "Sec": second,
-        "D9_Sign": d9_sign, "D9_Deg": round(d9_deg, 6), "Nak_Deg": round(nak_deg, 6)
-    }
+    # Handle mathematical rounding overflow cascading boundaries
+    if second >= 60.0:
+        second = 0.0
+        minute += 1
+    if minute >= 60:
+        minute = 0
+        deg += 1
+    if deg >= 30:
+        deg = 0
+        sign = (sign % 12) + 1
+        
+    return {"Sign": sign, "Deg": deg, "Min": minute, "Sec": second}
 
-def calculate_chart_vector(date_str, time_str, tz_offset, lat, lon, alt):
-    base_dt = datetime.datetime.strptime(f"{date_str} {time_str}", "%Y.%m.%d %H:%M:%S")
-    utc_dt = base_dt - datetime.timedelta(hours=tz_offset)
-    jd_ut = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, utc_dt.hour + utc_dt.minute/60.0 + utc_dt.second/3600.0)
-    swe.set_topo(lon, lat, alt)
-    ayan = swe.get_ayanamsa_ut(jd_ut)
-    cusps, ascmc = swe.houses(jd_ut, lat, lon, b'T')
-    vector = {"Ascendant": get_fine_coordinates((ascmc[0] - ayan) % 360)}
-    for name, pid in PLANETS_MAP.items():
-        res, f = swe.calc_ut(jd_ut, pid, swe.FLG_SIDEREAL | swe.FLG_TOPOCTR)
-        vector[name] = get_fine_coordinates(res[0])
-    return vector
-
-def generate_raw_research_ledger(market_date_str, market_tz):
-    market_base = datetime.datetime.strptime(market_date_str, "%Y.%m.%d").date()
+def generate_clean_dms_ledger(date_str, tz_offset):
+    market_base = datetime.datetime.strptime(date_str, "%Y.%m.%d").date()
     current_local = datetime.datetime.combine(market_base, datetime.time(9, 0, 0))
     end_local = datetime.datetime.combine(market_base, datetime.time(16, 20, 0))
-    raw_records = []
+    records = []
     
     while current_local <= end_local:
         time_str = current_local.strftime("%H:%M:%S")
-        transit = calculate_chart_vector(market_date_str, time_str, market_tz, DEFAULT_LAT, DEFAULT_LON, DEFAULT_ALT)
-        row = {"Time": time_str}
+        utc_dt = current_local - datetime.timedelta(hours=tz_offset)
+        decimal_hour = utc_dt.hour + utc_dt.minute / 60.0 + utc_dt.second / 3600.0
+        jd_ut = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, decimal_hour)
         
-        for t_name, t_pos in transit.items():
-            row[f"M_{t_name}_Total"] = t_pos["Total"]
-            row[f"M_{t_name}_Sign"] = t_pos["Sign"]
-            row[f"M_{t_name}_Deg"] = t_pos["Deg"]
-            row[f"M_{t_name}_Min"] = t_pos["Min"]
-            row[f"M_{t_name}_Sec"] = t_pos["Sec"]
-            row[f"M_{t_name}_D9_Sign"] = t_pos["D9_Sign"]
-            row[f"M_{t_name}_D9_Deg"] = t_pos["D9_Deg"]
-            row[f"M_{t_name}_Nak_Deg"] = t_pos["Nak_Deg"]
+        swe.set_topo(DEFAULT_LON, DEFAULT_LAT, DEFAULT_ALT)
+        ayan = swe.get_ayanamsa_ut(jd_ut)
+        _, ascmc = swe.houses(jd_ut, DEFAULT_LAT, DEFAULT_LON, b'T')
+        
+        # Core data assignments
+        transit = {"Ascendant": deconstruct_to_dms((ascmc[0] - ayan) % 360.0)}
+        for name, pid in PLANETS_MAP.items():
+            res, _ = swe.calc_ut(jd_ut, pid, swe.FLG_SIDEREAL | swe.FLG_TOPOCTR)
+            transit[name] = deconstruct_to_dms(res[0])
             
-        raw_records.append(row)
+        row = {"Time": time_str}
+        for name, pos in transit.items():
+            row[f"{name}Sign"] = pos["Sign"]
+            row[f"{name}Deg"] = pos["Deg"]
+            row[f"{name}Min"] = pos["Min"]
+            row[f"{name}Sec"] = pos["Sec"]
+            
+        records.append(row)
         current_local += datetime.timedelta(minutes=1)
         
-    return pd.DataFrame(raw_records)
+    df = pd.DataFrame(records)
+    output_name = f"ledger_{date_str}.csv"
+    df.to_csv(output_name, index=False)
+    print(f"SUCCESS: Generated {output_name}")
 
-if __name__ == "__main__":
-    target_date = sys.argv[1] if len(sys.argv) > 1 else "2026.06.16"
-    print(f"Generating data tracking ledger for: {target_date}...")
-    df = generate_raw_research_ledger(target_date, 5.5)
-    output_filename = f"ledger_{target_date}.csv"
-    df.to_csv(output_filename, index=False)
-    print(f"Success! Exported {len(df)} lines to '{output_filename}'")
-"""
-
-with open("transit_data_generator.py", "w") as f:
-    f.write(script_content)
-
-# 2. Fire the engine for your target execution matrix
-!python transit_data_generator.py 2026.06.16
+# Execute calculations for the matrix
+generate_clean_dms_ledger("2026.06.16", 5.5)

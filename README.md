@@ -19,3 +19,5 @@ Ensure you have the Swiss Ephemeris C-library dependencies compiled for your env
 
 ```bash
 pip install pyswisseph pandas
+
+<img width="1296" height="740" alt="image" src="https://github.com/user-attachments/assets/78eecc1e-50d6-4a83-b9dc-8d031f9fcc69" />

@@ -1,1 +1,88 @@
+import pandas as pd
+import numpy as np
 
+# Corrected velocity-to-interval limits mapping
+INTERVAL_LIMITS = {
+    "Moon": 0.12,         # Sprinter: tight window to prevent time-blur
+    "Mercury": 0.25,      # Tactical trigger
+    "Venus": 0.30,        # Tactical trigger
+    "Sun": 0.50,
+    "Mars": 0.50,
+    "Jupiter": 0.75,      # Macro gear
+    "Saturn": 0.75,      # Macro gear
+    "Rahu": 1.00,         # Heavy structural node
+    "Ketu": 1.00,         # Heavy structural node
+    "Ascendant": 0.05
+}
+
+def calculate_coincidence_index(transit_long, birth_long, max_interval):
+    delta = abs(transit_long - birth_long)
+    if delta > 180.0:
+        delta = 360.0 - delta
+    if delta >= max_interval:
+        return 0.0
+    return round((1.0 - (delta / max_interval)) * 100.0, 2)
+
+def analyze_market_moment(target_time, csv_path="raw_market_session_ledger.csv"):
+    df_ledger = pd.read_csv(csv_path)
+    
+    # Isolate the exact minute row of the market anomaly
+    moment_row = df_ledger[df_ledger["Time"] == target_time]
+    
+    if moment_row.empty:
+        print(f"Error: Timestamp '{target_time}' not found in the baseline ledger.")
+        return
+    
+    row = moment_row.iloc[0]
+    snapshot_records = []
+    
+    transit_bodies = ["Sun", "Moon", "Mars", "Mercury", "Venus", "Jupiter", "Saturn", "Rahu", "Ketu"]
+    birth_targets  = ["Ascendant", "Sun", "Moon", "Mars", "Mercury", "Venus", "Jupiter", "Saturn", "Rahu", "Ketu"]
+    
+    for m in transit_bodies:
+        m_total = row[f"M_{m}_Total"]
+        max_i = INTERVAL_LIMITS[m]
+        
+        for b in birth_targets:
+            b_total = row[f"B_{b}_Total"]
+            
+            # D1 Macro Proximity
+            d1_score = calculate_coincidence_index(m_total, b_total, max_i)
+            if d1_score > 0.0:
+                snapshot_records.append({
+                    "Layer": "D1 Macro",
+                    "Transiting_Planet": m,
+                    "Birth_Target": b,
+                    "Coincidence_Index": f"{d1_score}%",
+                    "Proximity_Status": "CRITICAL_TRIGGER" if d1_score >= 85.0 else "PRESSURE_ZONE"
+                })
+            
+            # D9 Micro Proximity
+            m_d9_sign = int(row[f"M_{m}_D9_Sign"])
+            b_d9_sign = int(row[f"B_{b}_D9_Sign"])
+            if m_d9_sign == b_d9_sign:
+                d9_score = calculate_coincidence_index(row[f"M_{m}_D9_Deg"], row[f"B_{b}_D9_Deg"], max_i)
+                if d9_score > 0.0:
+                    snapshot_records.append({
+                        "Layer": "D9 Micro",
+                        "Transiting_Planet": m,
+                        "Birth_Target": b,
+                        "Coincidence_Index": f"{d9_score}%",
+                        "Proximity_Status": "CRITICAL_TRIGGER" if d9_score >= 85.0 else "PRESSURE_ZONE"
+                    })
+                    
+    df_snapshot = pd.DataFrame(snapshot_records)
+    print(f"\n========================================================")
+    print(f" PLANETARY SNAPSHOT AT INTERESTING MOMENT: {target_time}")
+    print(f"========================================================")
+    if df_snapshot.empty:
+        print("No cosmic intervals breached at this exact minute.")
+    else:
+        print(df_snapshot.to_string(index=False))
+
+if __name__ == "__main__":
+    # Example: Analyze the geometry active at exactly 10:30 AM
+    try:
+        analyze_market_moment("10:30:00")
+    except FileNotFoundError:
+        print("Error: Run transit_data_generator.py first.")

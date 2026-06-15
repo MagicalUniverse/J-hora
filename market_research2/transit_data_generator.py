@@ -3,7 +3,7 @@ import swisseph as swe
 import pandas as pd
 
 # ==============================================================================
-# GEOCENTRIC COORD LOCKED FRAMEWORK
+# GEOCENTRIC COORDINATE CONFIGURATION
 # ==============================================================================
 DEFAULT_LAT, DEFAULT_LON, DEFAULT_ALT = 60.3011, 11.1717, 25.0
 swe.set_sid_mode(swe.SIDM_LAHIRI)
@@ -16,7 +16,7 @@ PLANETS_MAP = {
 }
 
 def deconstruct_to_dms(total_longitude):
-    """Translates raw absolute longitudes strictly into Sign, Deg, Min, Sec."""
+    """Deconstructs absolute longitudes strictly into isolated Sign, Deg, Min, Sec arc layers."""
     norm_lon = total_longitude % 360.0
     sign = int(norm_lon / 30.0) + 1
     abs_deg = norm_lon % 30.0
@@ -26,7 +26,6 @@ def deconstruct_to_dms(total_longitude):
     minute = int(total_minutes)
     second = round((total_minutes - minute) * 60.0, 2)
     
-    # Handle mathematical rounding overflow cascading boundaries
     if second >= 60.0:
         second = 0.0
         minute += 1
@@ -39,10 +38,11 @@ def deconstruct_to_dms(total_longitude):
         
     return {"Sign": sign, "Deg": deg, "Min": minute, "Sec": second}
 
-def generate_clean_dms_ledger(date_str, tz_offset):
-    market_base = datetime.datetime.strptime(date_str, "%Y.%m.%d").date()
-    current_local = datetime.datetime.combine(market_base, datetime.time(9, 0, 0))
-    end_local = datetime.datetime.combine(market_base, datetime.time(16, 20, 0))
+def calculate_single_day(target_date_obj, tz_offset):
+    """Generates the absolute 441-minute tracking matrix for a verified session day."""
+    date_str = target_date_obj.strftime("%Y.%m.%d")
+    current_local = datetime.datetime.combine(target_date_obj, datetime.time(9, 0, 0))
+    end_local = datetime.datetime.combine(target_date_obj, datetime.time(16, 20, 0))
     records = []
     
     while current_local <= end_local:
@@ -55,7 +55,6 @@ def generate_clean_dms_ledger(date_str, tz_offset):
         ayan = swe.get_ayanamsa_ut(jd_ut)
         _, ascmc = swe.houses(jd_ut, DEFAULT_LAT, DEFAULT_LON, b'T')
         
-        # Core data assignments
         transit = {"Ascendant": deconstruct_to_dms((ascmc[0] - ayan) % 360.0)}
         for name, pid in PLANETS_MAP.items():
             res, _ = swe.calc_ut(jd_ut, pid, swe.FLG_SIDEREAL | swe.FLG_TOPOCTR)
@@ -74,7 +73,25 @@ def generate_clean_dms_ledger(date_str, tz_offset):
     df = pd.DataFrame(records)
     output_name = f"ledger_{date_str}.csv"
     df.to_csv(output_name, index=False)
-    print(f"SUCCESS: Generated {output_name}")
+    print(f" -> SUCCESS: Exported {output_name}")
 
-# Execute calculations for the matrix
-generate_clean_dms_ledger("2026.06.16", 5.5)
+def generate_weekly_range(start_date_str, end_date_str, tz_offset=5.5):
+    """Iterates through calendar dates, automatically dropping weekends."""
+    start_date = datetime.datetime.strptime(start_date_str, "%Y.%m.%d").date()
+    end_date = datetime.datetime.strptime(end_date_str, "%Y.%m.%d").date()
+    
+    print(f"=== INITIALIZING BATCH RUN FROM {start_date_str} TO {end_date_str} ===")
+    current_date = start_date
+    
+    while current_date <= end_date:
+        # 5 = Saturday, 6 = Sunday in Python's weekday model
+        if current_date.weekday() >= 5:
+            print(f"Skipping weekend date: {current_date.strftime('%Y.%m.%d')} (Market Closed)")
+        else:
+            calculate_single_day(current_date, tz_offset)
+        current_date += datetime.timedelta(days=1)
+        
+    print("\n=== COMPLETE: ALL LEDGERS CREATED ===")
+
+# Run the entire 5-day week in a single operation
+generate_weekly_range(start_date_str="2026.06.15", end_date_str="2026.06.19")

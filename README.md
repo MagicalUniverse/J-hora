@@ -17,20 +17,20 @@ A lightweight, high-precision Python transit calculation engine utilizing the Sw
 
 Ensure you have the Swiss Ephemeris C-library dependencies compiled for your environment before executing the script.
 
-                  ┌─────────────────────────────────┐
-                  │      LIVE MARKET TIMESTAMP      │
-                  └────────────────┬────────────────┘
-                                   │
-         ┌─────────────────────────┼─────────────────────────┐
-         ▼                         ▼                         ▼
- ┌───────────────┐         ┌───────────────┐         ┌───────────────┐
- │ Alignment     │         │ Aspect Logic  │         │ Sentiment     │
- │ Layer         │         │ (Drishti)     │         │ Layer         │
- └───────┬───────┘         └───────┬───────┘         └───────┬───────┘
-         │                         │                         │
-         ▼                         ▼                         ▼
- - Match Market to Birth   - Compute geometric arcs  - Find house lords
- - Flag/Color Ascendant    - Match special aspects   - Apply Bull/Bear 
-   crossings Red             (e.g., Saturn 3/7/10)     scoring parameters
+
+
+   [Start Time: 09:00] ──► Step Forward (+1 Min) 
+                             │
+                             ▼
+                 [Check Ascendant Degree]
+                             │
+              ┌──────────────┴──────────────┐
+              ▼                             ▼
+       [Same Sign/Navamsa]          [Border Crossed!]
+              │                             │
+              ▼                             ▼
+       Continue Stepping             1. Log Cross-over Time
+                                     2. Feed timestamp back to loop
+                                     3. Open micro-interval analysis window
 
    

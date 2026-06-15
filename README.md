@@ -17,7 +17,18 @@ A lightweight, high-precision Python transit calculation engine utilizing the Sw
 
 Ensure you have the Swiss Ephemeris C-library dependencies compiled for your environment before executing the script.
 
-```bash
-pip install pyswisseph pandas
-
-<img width="1296" height="740" alt="image" src="https://github.com/user-attachments/assets/78eecc1e-50d6-4a83-b9dc-8d031f9fcc69" />
+                  ┌─────────────────────────────────┐
+                  │      LIVE MARKET TIMESTAMP      │
+                  └────────────────┬────────────────┘
+                                   │
+         ┌─────────────────────────┼─────────────────────────┐
+         ▼                         ▼                         ▼
+ ┌───────────────┐         ┌───────────────┐         ┌───────────────┐
+ │ Alignment     │         │ Aspect Logic  │         │ Sentiment     │
+ │ Layer         │         │ (Drishti)     │         │ Layer         │
+ └───────┬───────┘         └───────┬───────┘         └───────┬───────┘
+         │                         │                         │
+         ▼                         ▼                         ▼
+ - Match Market to Birth   - Compute geometric arcs  - Find house lords
+ - Flag/Color Ascendant    - Match special aspects   - Apply Bull/Bear 
+   crossings Red             (e.g., Saturn 3/7/10)     scoring parameters

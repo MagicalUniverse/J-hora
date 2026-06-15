@@ -3,162 +3,115 @@ import swisseph as swe
 import pandas as pd
 
 # =====================================================================
-# 1. BASELINE DEFAULTS (Oslo Profile from Image Lock)
+# 1. DEFAULT RADIX (BIRTH) & GEOGRAPHIC PARAMETERS
 # =====================================================================
-DEFAULT_LAT = 59.90870  
-DEFAULT_LON = 10.74779  
-DEFAULT_ALT = 25.0      
+DEFAULT_BIRTH_DATE = "1814.05.17"
+DEFAULT_BIRTH_TIME = "12:27:12"
+DEFAULT_BIRTH_TZ   = 0.0  # Defaulting birth input directly to UT/GMT baseline
+
+# Default Coordinates (Topocentric Lock)
+DEFAULT_LAT = 60.3011
+DEFAULT_LON = 11.1717
+DEFAULT_ALT = 25.0
 
 swe.set_sid_mode(swe.SIDM_LAHIRI)
-BORDER_THRESHOLD_DEG = 1.0 / 60.0  # 1 arcminute safety threshold
+PROXIMITY_ORBIT_DEG = 0.05  # Trigger match if within ~3 arcminutes
 
-NAKSHATRAS = [
-    "Ashwini", "Bharani", "Krittika", "Rohini", "Mrigasira", "Ardra", 
-    "Punarvasu", "Pushya", "Ashlesha", "Magha", "Purva Phalguni", "Uttara Phalguni", 
-    "Hasta", "Chitra", "Swati", "Visakha", "Anuradha", "Jyeshtha", 
-    "Moola", "Purva Ashadha", "Uttara Ashadha", "Sravana", "Dhanishta", "Shatabhisha", 
-    "Purva Bhadrapada", "Uttara Bhadrapada", "Revati"
-]
+PLANETS_MAP = {"Sun": swe.SUN, "Moon": swe.MOON, "Mars": swe.MARS, "Saturn": swe.SATURN}
 
 # =====================================================================
-# 2. CALCULATION CORE
+# 2. CALCULATION CORE & DIVISIONAL EXTRACTORS
 # =====================================================================
-def get_varga_indices(total_longitude):
-    d1_index = int(total_longitude / 30.0)
+def get_divisional_positions(total_longitude):
+    """Isolates exact absolute degrees for D1 and D9 structures."""
+    d1_deg = total_longitude % 30.0
     pada_span = 30.0 / 9.0
-    d9_index = int(total_longitude / pada_span)
-    return d1_index, d9_index
+    d9_deg = (total_longitude % pada_span) * 9.0  # Scaled to 30° parity
+    return {"D1": round(total_longitude, 4), "D9": round(d9_deg, 4)}
 
-def check_border_details(deg_within_block, block_size):
-    return (deg_within_block <= BORDER_THRESHOLD_DEG) or ((block_size - deg_within_block) <= BORDER_THRESHOLD_DEG)
-
-def get_astronomical_profile(total_longitude):
-    alerts = []
-    d1_sign = int(total_longitude / 30) + 1
-    d1_deg = total_longitude % 30
-    if check_border_details(d1_deg, 30.0): alerts.append("D1 Rashi")
-        
-    pada_span = 30.0 / 9.0
-    d9_sign = (int(total_longitude / pada_span) % 12) + 1
-    d9_deg = total_longitude % pada_span
-    if check_border_details(d9_deg, pada_span): alerts.append("D9/Pada")
-        
-    nak_span = 360.0 / 27.0
-    nak_index = int(total_longitude / nak_span)
-    nak_deg = total_longitude % nak_span
+def calculate_chart_vector(date_str, time_str, tz_offset, lat, lon, alt):
+    """Generates a complete astronomical snapshot for any given target space-time."""
+    base_dt = datetime.datetime.strptime(f"{date_str} {time_str}", "%Y.%m.%d %H:%M:%S")
+    utc_dt = base_dt - datetime.timedelta(hours=tz_offset)
     
-    status = f"[ALERT] Edge Boundary" if alerts else "OK"
-        
-    return {
-        "D1_Sign": d1_sign, "D1_Deg": round(d1_deg, 4),
-        "D9_Sign": d9_sign, "D9_Deg": round(d9_deg * 9.0, 4),
-        "Nakshatra": NAKSHATRAS[nak_index % 27], "Status": status
-    }
-
-def get_lagna_longitude(dt_utc, lat, lon, alt):
-    hour_utc = dt_utc.hour + (dt_utc.minute / 60.0) + (dt_utc.second / 3600.0)
-    jd_ut = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, hour_utc)
-    swe.set_topo(lon, lat, alt)
-    ayan_offset = swe.get_ayanamsa_ut(jd_ut)
-    cusps, ascmc = swe.houses(jd_ut, lat, lon, b'T')
-    return (ascmc[0] - ayan_offset) % 360
-
-def calculate_full_snapshot(dt_utc, tz_offset, event_reason, lat, lon, alt):
-    hour_utc = dt_utc.hour + (dt_utc.minute / 60.0) + (dt_utc.second / 3600.0)
-    jd_ut = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, hour_utc)
+    hour_utc = utc_dt.hour + (utc_dt.minute / 60.0) + (utc_dt.second / 3600.0)
+    jd_ut = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, hour_utc)
+    
     swe.set_topo(lon, lat, alt)
     ayan_offset = swe.get_ayanamsa_ut(jd_ut)
     
-    local_dt = dt_utc + datetime.timedelta(hours=tz_offset)
-    timestamp_str = local_dt.strftime("%Y-%m-%d %H:%M:%S")
-    
+    # House Cusps for Lagna
     cusps, ascmc = swe.houses(jd_ut, lat, lon, b'T')
-    records = [{
-        "Event": event_reason, "Timestamp_Local": timestamp_str, "Body": "Lagna", 
-        **get_astronomical_profile((ascmc[0] - ayan_offset) % 360)
-    }]
+    lagna_sidereal = (ascmc[0] - ayan_offset) % 360
     
-    PLANETS = {"Sun": swe.SUN, "Moon": swe.MOON, "Mars": swe.MARS, "Saturn": swe.SATURN}
-    for name, pid in PLANETS.items():
+    vector = {"Lagna": get_divisional_positions(lagna_sidereal)}
+    for name, pid in PLANETS_MAP.items():
         res, f = swe.calc_ut(jd_ut, pid, swe.FLG_SIDEREAL | swe.FLG_TOPOCTR)
-        records.append({
-            "Event": event_reason, "Timestamp_Local": timestamp_str, "Body": name, 
-            **get_astronomical_profile(res[0])
-        })
-    return records
+        vector[name] = get_divisional_positions(res[0])
+    return vector
 
 # =====================================================================
-# 3. RANGE SCANNER PIPELINE (With Location Support)
+# 3. INTER-CHART SCANNER PIPELINE
 # =====================================================================
-def run_adaptive_market_scan(target_date_str, tz_offset, track_varga="D9", lat=None, lon=None, alt=None):
-    """Executes a single-day market session scan using precise parameters."""
-    run_lat = lat if lat is not None else DEFAULT_LAT
-    run_lon = lon if lon is not None else DEFAULT_LON
-    run_alt = alt if alt is not None else DEFAULT_ALT
-
-    base_date = datetime.datetime.strptime(target_date_str, "%Y.%m.%d").date()
-    start_local = datetime.datetime.combine(base_date, datetime.time(9, 0, 0))
-    end_local = datetime.datetime.combine(base_date, datetime.time(16, 20, 0))
+def analyze_interchart_transits(market_date_str, market_tz, radix_override=None):
+    """
+    Scans market hours against Radix positions. Generates user-defined 
+    Rule A (+60m) or Rule B (±30m) windows upon collision detection.
+    """
+    # Fallback to default birth parameters if no override vector is passed
+    radix = radix_override if radix_override is not None else calculate_chart_vector(
+        DEFAULT_BIRTH_DATE, DEFAULT_BIRTH_TIME, DEFAULT_BIRTH_TZ, DEFAULT_LAT, DEFAULT_LON, DEFAULT_ALT
+    )
+    
+    market_base = datetime.datetime.strptime(market_date_str, "%Y.%m.%d").date()
+    start_local = datetime.datetime.combine(market_base, datetime.time(9, 0, 0))
+    end_local = datetime.datetime.combine(market_base, datetime.time(16, 20, 0))
     
     current_local = start_local
-    all_outputs = []
-    
-    init_utc = current_local - datetime.timedelta(hours=tz_offset)
-    last_lon = get_lagna_longitude(init_utc, run_lat, run_lon, run_alt)
-    last_d1, last_d9 = get_varga_indices(last_lon)
+    triggered_events = []
     
     while current_local <= end_local:
-        current_utc = current_local - datetime.timedelta(hours=tz_offset)
-        current_lon = get_lagna_longitude(current_utc, run_lat, run_lon, run_alt)
-        current_d1, current_d9 = get_varga_indices(current_lon)
+        # Calculate current active transit profile
+        time_str = current_local.strftime("%H:%M:%S")
+        transit = calculate_chart_vector(market_date_str, time_str, market_tz, DEFAULT_LAT, DEFAULT_LON, DEFAULT_ALT)
         
-        crossed = False
-        reason = ""
-        
-        if track_varga == "D1" and current_d1 != last_d1:
-            crossed = True
-            reason = f"D1 Ascendant Shift"
-        elif track_varga == "D9" and current_d9 != last_d9:
-            crossed = True
-            reason = f"D9 Ascendant Shift"
-            
-        if crossed:
-            snapshot = calculate_full_snapshot(current_utc, tz_offset, reason, run_lat, run_lon, run_alt)
-            all_outputs.extend(snapshot)
-            last_d1, last_d9 = current_d1, current_d9
-            
-        last_lon = current_lon
+        # Cross-compare transit data layers directly against our fixed birth vector
+        for t_body, t_pos in transit.items():
+            for r_body, r_pos in radix.items():
+                
+                # Check D1 Alignment
+                if abs(t_pos["D1"] - r_pos["D1"]) <= PROXIMITY_ORBIT_DEG:
+                    reason = f"Transit {t_body} Conjoint Radix {r_body} (D1)"
+                    triggered_events.append({
+                        "Match_Time": current_local.strftime("%Y-%m-%d %H:%M:%S"),
+                        "Trigger": reason, "Layer": "D1 Macro"
+                    })
+                    
+                # Check D9 Alignment
+                if abs(t_pos["D9"] - r_pos["D9"]) <= PROXIMITY_ORBIT_DEG:
+                    reason = f"Transit {t_body} Conjoint Radix {r_body} (D9)"
+                    triggered_events.append({
+                        "Match_Time": current_local.strftime("%Y-%m-%d %H:%M:%S"),
+                        "Trigger": reason, "Layer": "D9 Micro"
+                    })
+                    
         current_local += datetime.timedelta(minutes=1)
         
-    return pd.DataFrame(all_outputs)
-
-def run_multi_day_batch(start_date_str, end_date_str, tz_offset, track_varga="D9", lat=None, lon=None, alt=None):
-    """Loops through a sequential date range to compile cross-over events."""
-    start = datetime.datetime.strptime(start_date_str, "%Y.%m.%d").date()
-    end = datetime.datetime.strptime(end_date_str, "%Y.%m.%d").date()
-    delta = end - start
-    
-    master_frames = []
-    for i in range(delta.days + 1):
-        date_loop_str = (start + datetime.timedelta(days=i)).strftime("%Y.%m.%d")
-        day_df = run_adaptive_market_scan(date_loop_str, tz_offset, track_varga, lat, lon, alt)
-        if not day_df.empty:
-            master_frames.append(day_df)
-            
-    return pd.concat(master_frames, ignore_index=True) if master_frames else pd.DataFrame()
+    return pd.DataFrame(triggered_events).drop_duplicates(subset=["Trigger"])
 
 # =====================================================================
-# 4. EXECUTION CONTROL
+# 4. RUNTIME VERIFICATION CONTROL
 # =====================================================================
 if __name__ == "__main__":
-    # Example: Run a multi-day test range with custom geographic settings
-    df_results = run_multi_day_batch(
-        start_date_str="2026.06.15", 
-        end_date_str="2026.06.17", 
-        tz_offset=2.0, 
-        track_varga="D9",
-        lat=59.90870,   # Set to None to default to Oslo
-        lon=10.74779,
-        alt=25.0
+    print("--- RUNNING WITH DEFAULT HISTORICAL RADIX ---")
+    df_defaults = analyze_interchart_transits("2026.06.15", market_tz=2.0)
+    print(df_defaults.to_string(index=False) if not df_defaults.empty else "No structural radix connections hit today.")
+    
+    print("\n--- SAMPLE SHOWING USER REJECTION OF DEFAULT VALUES ---")
+    # Custom user override parameters passed dynamically at runtime
+    custom_radix = calculate_chart_vector(
+        date_str="1990.01.01", time_str="06:00:00", tz_offset=1.0, 
+        lat=57.1000, lon=12.2500, alt=0.0
     )
-    print(df_results[["Timestamp_Local", "Event", "Body", "D1_Sign", "D1_Deg", "D9_Sign", "D9_Deg"]].head(10))
+    df_overrides = analyze_interchart_transits("2026.06.15", market_tz=2.0, radix_override=custom_radix)
+    print(df_overrides.to_string(index=False) if not df_overrides.empty else "No custom radix connections hit today.")

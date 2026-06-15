@@ -107,56 +107,38 @@ def calculate_full_snapshot(dt_utc, tz_offset, event_reason):
 # =====================================================================
 # 3. ADAPTIVE FEEDBACK SCANNING LOOP
 # =====================================================================
-def run_adaptive_market_scan(target_date_str, tz_offset, track_varga="D9"):
+# =====================================================================
+# 3. USER-CONFIGURABLE RUNTIME INTERFACE
+# =====================================================================
+def run_market_analysis_suite(start_date_str, end_date_str, tz_offset, track_varga="D9", lat=None, lon=None, alt=0.0):
     """
-    Loops through market hours, detects structural ascendant crossovers, 
-    and instantly triggers micro-window logging for both D1 and D9.
+    Scans a date range sequentially, calculating adaptive boundary crossings 
+    using explicit geographic overrides if provided.
     """
-    base_date = datetime.datetime.strptime(target_date_str, "%Y.%m.%d").date()
-    start_local = datetime.datetime.combine(base_date, datetime.time(9, 0, 0))
-    end_local = datetime.datetime.combine(base_date, datetime.time(16, 20, 0))
+    # Use default image coordinates if overrides are left blank
+    target_lat = lat if lat is not None else DEFAULT_LAT
+    target_lon = lon if lon is not None else DEFAULT_LON
+    target_alt = alt if alt is not None else DEFAULT_ALT
     
-    current_local = start_local
-    all_outputs = []
+    start_date = datetime.datetime.strptime(start_date_str, "%Y.%m.%d").date()
+    end_date = datetime.datetime.strptime(end_date_str, "%Y.%m.%d").date()
     
-    # Initialize baseline coordinates
-    init_utc = current_local - datetime.timedelta(hours=tz_offset)
-    last_lon = get_lagna_longitude(init_utc)
-    last_d1, last_d9 = get_varga_indices(last_lon)
+    # Generate continuous list of dates to process
+    delta = end_date - start_date
+    date_list = [start_date + datetime.timedelta(days=i) for i in range(delta.days + 1)]
     
-    print(f"Beginning Adaptive Hunt on {target_date_str} for Ascendant {track_varga} flips...\n")
+    master_frames = []
     
-    while current_local <= end_local:
-        current_utc = current_local - datetime.timedelta(hours=tz_offset)
-        current_lon = get_lagna_longitude(current_utc)
-        current_d1, current_d9 = get_varga_indices(current_lon)
-        
-        # Check if a boundary cross-over condition has been met
-        crossed = False
-        reason = ""
-        
-        if track_varga == "D1" and current_d1 != last_d1:
-            crossed = True
-            reason = f"D1 Ascendant Shift (Sign {last_d1+1} -> {current_d1+1})"
-        elif track_varga == "D9" and current_d9 != last_d9:
-            crossed = True
-            reason = f"D9 Ascendant Shift (Block {last_d9} -> {current_d9})"
+    for current_date in date_list:
+        date_formatted = current_date.strftime("%Y.%m.%d")
+        # Reuse our established scanning logic per day
+        day_df = run_adaptive_market_scan_core(date_formatted, tz_offset, track_varga, target_lat, target_lon, target_alt)
+        if not day_df.empty:
+            master_frames.append(day_df)
             
-        if crossed:
-            # FEEDBACK MECHANISM: Trigger complete structural log for this specific minute
-            snapshot = calculate_full_snapshot(current_utc, tz_offset, reason)
-            all_outputs.extend(snapshot)
-            
-            # Update state anchors
-            last_d1 = current_d1
-            last_d9 = current_d9
-            
-        # Standard step resolution: 1-minute tracking increments
-        last_lon = current_lon
-        current_local += datetime.timedelta(minutes=1)
-        
-    df_final = pd.DataFrame(all_outputs)
-    return df_final
+    if master_frames:
+        return pd.concat(master_frames, ignore_index=True)
+    return pd.DataFrame()
 
 # =====================================================================
 # 4. RUNTIME AUTOMATION CONTROL

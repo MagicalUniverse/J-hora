@@ -1,42 +1,51 @@
-def generate_raw_research_ledger(market_date_str, market_tz, birth_override=None):
-    """
-    Generates a massive, high-precision matrix containing the absolute 
-    coordinates of every market body and birth body for every minute.
-    """
-    birth = birth_override if birth_override is not None else calculate_chart_vector(
-        DEFAULT_BIRTH_DATE, DEFAULT_BIRTH_TIME, DEFAULT_BIRTH_TZ, DEFAULT_LAT, DEFAULT_LON, DEFAULT_ALT
-    )
+import pandas as pd
+
+# Threshold: Within 1 arcminute of the edge boundary line
+BORDER_THRESHOLD_DEG = 1.0 / 60.0  
+
+def run_boundary_filter(csv_path="raw_market_session_ledger.csv"):
+    df_ledger = pd.read_csv(csv_path)
+    boundary_events = []
     
-    market_base = datetime.datetime.strptime(market_date_str, "%Y.%m.%d").date()
-    current_local = datetime.datetime.combine(market_base, datetime.time(9, 0, 0))
-    end_local = datetime.datetime.combine(market_base, datetime.time(16, 20, 0))
+    # Absolute planetary grid including fast items & nodes. Ascendant excluded to stop noise.
+    planetary_grid = ["Sun", "Moon", "Mars", "Mercury", "Venus", "Jupiter", "Saturn", "Rahu", "Ketu"]
     
-    raw_records = []
-    
-    while current_local <= end_local:
-        time_str = current_local.strftime("%H:%M:%S")
-        transit = calculate_chart_vector(market_date_str, time_str, market_tz, DEFAULT_LAT, DEFAULT_LON, DEFAULT_ALT)
+    for idx, row in df_ledger.iterrows():
+        time_str = row["Time"]
         
-        row = {"Time": time_str}
-        
-        # Inject precise Market positions
-        for t_name, t_pos in transit.items():
-            row[f"M_{t_name}_Total"] = t_pos["Total"]
-            row[f"M_{t_name}_D1_Sign"] = t_pos["D1_Sign"]
-            row[f"M_{t_name}_D1_Deg"] = t_pos["D1_Deg"]
-            row[f"M_{t_name}_D9_Sign"] = t_pos["D9_Sign"]
-            row[f"M_{t_name}_D9_Deg"] = t_pos["D9_Deg"]
-            row[f"M_{t_name}_Nak_Deg"] = t_pos["Nak_Deg"]
+        for m in planetary_grid:
+            d1_deg = row[f"M_{m}_D1_Deg"]
+            nak_deg = row[f"M_{m}_Nak_Deg"]
+            nak_span = 360.0 / 27.0  # 13.3333 degrees per Nakshatra
             
-        # Inject precise Birth positions for absolute comparison flexibility
-        for b_name, b_pos in birth.items():
-            row[f"B_{b_name}_Total"] = b_pos["Total"]
-            row[f"B_{b_name}_D1_Sign"] = b_pos["D1_Sign"]
-            row[f"B_{b_name}_D1_Deg"] = b_pos["D1_Deg"]
-            row[f"B_{b_name}_D9_Sign"] = b_pos["D9_Sign"]
-            row[f"B_{b_name}_D9_Deg"] = b_pos["D9_Deg"]
-            
-        raw_records.append(row)
-        current_local += datetime.timedelta(minutes=1)
-        
-    return pd.DataFrame(raw_records)
+            # 1. --- D1 SIGN CUSP CROSSING CHECK ---
+            if d1_deg <= BORDER_THRESHOLD_DEG or (30.0 - d1_deg) <= BORDER_THRESHOLD_DEG:
+                edge_val = d1_deg if d1_deg <= BORDER_THRESHOLD_DEG else (30.0 - d1_deg)
+                boundary_events.append({
+                    "Time": time_str, 
+                    "Layer": "D1 Sign Edge", 
+                    "Planet": m, 
+                    "Event": "Rashi Cusp Transition", 
+                    "Dist_To_Edge": round(edge_val, 5)
+                })
+                
+            # 2. --- NAKSHATRA / D9 SIGN CUSP CHECK ---
+            if nak_deg <= BORDER_THRESHOLD_DEG or (nak_span - nak_deg) <= BORDER_THRESHOLD_DEG:
+                edge_val = nak_deg if nak_deg <= BORDER_THRESHOLD_DEG else (nak_span - nak_deg)
+                boundary_events.append({
+                    "Time": time_str, 
+                    "Layer": "Nakshatra / D9 Edge", 
+                    "Planet": m, 
+                    "Event": "Constellation Border Crossover", 
+                    "Dist_To_Edge": round(edge_val, 5)
+                })
+                
+    return pd.DataFrame(boundary_events).drop_duplicates(subset=["Time", "Planet", "Event"])
+
+if __name__ == "__main__":
+    try:
+        df_borders = run_boundary_filter()
+        print("\n--- DETECTED PLANETARY BOUNDARY TRANSITIONS (D1 & NAKSHATRA/D9) ---")
+        print(df_borders.to_string(index=False))
+    except FileNotFoundError:
+        print("Error: Run transit_data_generator.py first to create the base ledger.")

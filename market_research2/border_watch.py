@@ -1,22 +1,21 @@
-def filter_cusp_transitions(df_ledger, threshold=1.0/60.0):
+import pandas as pd
+
+def filter_cusp_transitions(df, threshold=1.0/60.0):
     cusp_events = []
-    # Complete planetary line-up including nodes and fast inner planets
-    planetary_grid = ["Sun", "Moon", "Mars", "Mercury", "Venus", "Jupiter", "Saturn", "Rahu", "Ketu"]
+    planets = ['Sun', 'Moo', 'Mar', 'Mer', 'Ven', 'Jup', 'Sat', 'Rah', 'Ket']
     
-    for idx, row in df_ledger.iterrows():
-        for m in planetary_grid:
-            d1_deg = row[f"M_{m}_D1_Deg"]
-            nak_deg = row[f"M_{m}_Nak_Deg"]
+    for _, row in df.iterrows():
+        for p in planets:
+            val = row[p]
             
-            if d1_deg <= threshold or (30.0 - d1_deg) <= threshold:
-                cusp_events.append({
-                    "Time": row["Time"], "Body": m, 
-                    "Boundary": "Rashi Cusp Edge", "Exact_Deg": round(d1_deg, 4)
-                })
-            if nak_deg <= threshold or ((360.0/27.0) - nak_deg) <= threshold:
-                cusp_events.append({
-                    "Time": row["Time"], "Body": m, 
-                    "Boundary": "Nakshatra Cusp Edge", "Exact_Deg": round(nak_deg, 4)
-                })
+            # 1. Rashi Cusp Check (Multiples of 30)
+            dist_to_rashi = min(val % 30, 30 - (val % 30))
+            if dist_to_rashi <= threshold:
+                cusp_events.append({"Time": row["Time"], "Body": p, "Type": "Rashi", "Deg": round(val, 4)})
+                
+            # 2. Nakshatra Cusp Check (Multiples of 13.3333)
+            dist_to_nak = min(val % 13.3333, 13.3333 - (val % 13.3333))
+            if dist_to_nak <= threshold:
+                cusp_events.append({"Time": row["Time"], "Body": p, "Type": "Nak", "Deg": round(val, 4)})
                 
     return pd.DataFrame(cusp_events)

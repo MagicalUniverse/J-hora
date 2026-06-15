@@ -116,10 +116,14 @@ def generate_raw_research_ledger(market_date_str, market_tz):
 
 if __name__ == "__main__":
     import sys
-    # Dynamically targets the current calendar date on execution
-    target_date = datetime.date.today().strftime("%Y.%m.%d")
-    print(f"Generating granular ledger for {target_date}...")
     
+    # Capture date from terminal; default to 2026.05.17 if empty
+    if len(sys.argv) > 1:
+        target_date = sys.argv[1]
+    else:
+        target_date = "2026.05.17"
+        
+    print(f"Generating granular ledger for {target_date}...")
     df = generate_raw_research_ledger(target_date, 5.5)
     df.to_csv("baseline_ledger.csv", index=False)
     print("Success! File saved as 'baseline_ledger.csv'")

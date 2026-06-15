@@ -1,17 +1,16 @@
-!pip install pyswisseph
 import datetime
 import swisseph as swe
 import pandas as pd
 
 # =====================================================================
-# 1. FIXED PARAMETERS & TOPOCENTRIC COORDINATE LOCK
+# 1. BASELINE DEFAULTS (Oslo Profile from Image Lock)
 # =====================================================================
-DEFAULT_LAT = 59.90870  # 59°54'31.31"N
-DEFAULT_LON = 10.74779  # 10°44'52.06"E
-DEFAULT_ALT = 25.0      # 25m Elevation
+DEFAULT_LAT = 59.90870  
+DEFAULT_LON = 10.74779  
+DEFAULT_ALT = 25.0      
 
 swe.set_sid_mode(swe.SIDM_LAHIRI)
-BORDER_THRESHOLD_DEG = 1.0 / 60.0  # 1 arcminute safety margin
+BORDER_THRESHOLD_DEG = 1.0 / 60.0  # 1 arcminute safety threshold
 
 NAKSHATRAS = [
     "Ashwini", "Bharani", "Krittika", "Rohini", "Mrigasira", "Ardra", 
@@ -22,10 +21,9 @@ NAKSHATRAS = [
 ]
 
 # =====================================================================
-# 2. CALCULATION ENGINE & PROFILER
+# 2. CALCULATION CORE
 # =====================================================================
 def get_varga_indices(total_longitude):
-    """Returns absolute integer blocks for D1 (0-11) and D9 (0-107) to detect flips."""
     d1_index = int(total_longitude / 30.0)
     pada_span = 30.0 / 9.0
     d9_index = int(total_longitude / pada_span)
@@ -36,60 +34,45 @@ def check_border_details(deg_within_block, block_size):
 
 def get_astronomical_profile(total_longitude):
     alerts = []
-    
-    # D1 Rashi
     d1_sign = int(total_longitude / 30) + 1
     d1_deg = total_longitude % 30
     if check_border_details(d1_deg, 30.0): alerts.append("D1 Rashi")
         
-    # D9 Navamsa
     pada_span = 30.0 / 9.0
     d9_sign = (int(total_longitude / pada_span) % 12) + 1
     d9_deg = total_longitude % pada_span
     if check_border_details(d9_deg, pada_span): alerts.append("D9/Pada")
         
-    # D2 Hora
-    d2_deg = total_longitude % 15.0
-    if check_border_details(d2_deg, 15.0): alerts.append("D2 Hora")
-        
-    # Nakshatra
     nak_span = 360.0 / 27.0
     nak_index = int(total_longitude / nak_span)
     nak_deg = total_longitude % nak_span
-    if check_border_details(nak_deg, nak_span): alerts.append("Nakshatra")
     
-    pada_no = int(nak_deg / pada_span) + 1
-    status = f"[ALERT] Verify: {', '.join(alerts)}" if alerts else "OK"
+    status = f"[ALERT] Edge Boundary" if alerts else "OK"
         
     return {
-        "D1_Sign": d1_sign,
-        "D1_Deg": round(d1_deg, 4),
-        "D9_Sign": d9_sign,
-        "D9_Deg": round(d9_deg * 9.0, 4), # Scaled back to 30° format for parity
-        "Nakshatra": f"{NAKSHATRAS[nak_index % 27]} (P{pada_no})",
-        "Status": status
+        "D1_Sign": d1_sign, "D1_Deg": round(d1_deg, 4),
+        "D9_Sign": d9_sign, "D9_Deg": round(d9_deg * 9.0, 4),
+        "Nakshatra": NAKSHATRAS[nak_index % 27], "Status": status
     }
 
-def get_lagna_longitude(dt_utc):
-    """Isolates and returns the raw sidereal Lagna longitude for boundary checks."""
+def get_lagna_longitude(dt_utc, lat, lon, alt):
     hour_utc = dt_utc.hour + (dt_utc.minute / 60.0) + (dt_utc.second / 3600.0)
     jd_ut = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, hour_utc)
-    swe.set_topo(DEFAULT_LON, DEFAULT_LAT, DEFAULT_ALT)
+    swe.set_topo(lon, lat, alt)
     ayan_offset = swe.get_ayanamsa_ut(jd_ut)
-    cusps, ascmc = swe.houses(jd_ut, DEFAULT_LAT, DEFAULT_LON, b'T')
+    cusps, ascmc = swe.houses(jd_ut, lat, lon, b'T')
     return (ascmc[0] - ayan_offset) % 360
 
-def calculate_full_snapshot(dt_utc, tz_offset, event_reason):
-    """Generates complete D1 and D9 datasets for all tracked bodies at the target second."""
+def calculate_full_snapshot(dt_utc, tz_offset, event_reason, lat, lon, alt):
     hour_utc = dt_utc.hour + (dt_utc.minute / 60.0) + (dt_utc.second / 3600.0)
     jd_ut = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, hour_utc)
-    swe.set_topo(DEFAULT_LON, DEFAULT_LAT, DEFAULT_ALT)
+    swe.set_topo(lon, lat, alt)
     ayan_offset = swe.get_ayanamsa_ut(jd_ut)
     
     local_dt = dt_utc + datetime.timedelta(hours=tz_offset)
     timestamp_str = local_dt.strftime("%Y-%m-%d %H:%M:%S")
     
-    cusps, ascmc = swe.houses(jd_ut, DEFAULT_LAT, DEFAULT_LON, b'T')
+    cusps, ascmc = swe.houses(jd_ut, lat, lon, b'T')
     records = [{
         "Event": event_reason, "Timestamp_Local": timestamp_str, "Body": "Lagna", 
         **get_astronomical_profile((ascmc[0] - ayan_offset) % 360)
@@ -105,53 +88,77 @@ def calculate_full_snapshot(dt_utc, tz_offset, event_reason):
     return records
 
 # =====================================================================
-# 3. ADAPTIVE FEEDBACK SCANNING LOOP
+# 3. RANGE SCANNER PIPELINE (With Location Support)
 # =====================================================================
-# =====================================================================
-# 3. USER-CONFIGURABLE RUNTIME INTERFACE
-# =====================================================================
-def run_market_analysis_suite(start_date_str, end_date_str, tz_offset, track_varga="D9", lat=None, lon=None, alt=0.0):
-    """
-    Scans a date range sequentially, calculating adaptive boundary crossings 
-    using explicit geographic overrides if provided.
-    """
-    # Use default image coordinates if overrides are left blank
-    target_lat = lat if lat is not None else DEFAULT_LAT
-    target_lon = lon if lon is not None else DEFAULT_LON
-    target_alt = alt if alt is not None else DEFAULT_ALT
+def run_adaptive_market_scan(target_date_str, tz_offset, track_varga="D9", lat=None, lon=None, alt=None):
+    """Executes a single-day market session scan using precise parameters."""
+    run_lat = lat if lat is not None else DEFAULT_LAT
+    run_lon = lon if lon is not None else DEFAULT_LON
+    run_alt = alt if alt is not None else DEFAULT_ALT
+
+    base_date = datetime.datetime.strptime(target_date_str, "%Y.%m.%d").date()
+    start_local = datetime.datetime.combine(base_date, datetime.time(9, 0, 0))
+    end_local = datetime.datetime.combine(base_date, datetime.time(16, 20, 0))
     
-    start_date = datetime.datetime.strptime(start_date_str, "%Y.%m.%d").date()
-    end_date = datetime.datetime.strptime(end_date_str, "%Y.%m.%d").date()
+    current_local = start_local
+    all_outputs = []
     
-    # Generate continuous list of dates to process
-    delta = end_date - start_date
-    date_list = [start_date + datetime.timedelta(days=i) for i in range(delta.days + 1)]
+    init_utc = current_local - datetime.timedelta(hours=tz_offset)
+    last_lon = get_lagna_longitude(init_utc, run_lat, run_lon, run_alt)
+    last_d1, last_d9 = get_varga_indices(last_lon)
+    
+    while current_local <= end_local:
+        current_utc = current_local - datetime.timedelta(hours=tz_offset)
+        current_lon = get_lagna_longitude(current_utc, run_lat, run_lon, run_alt)
+        current_d1, current_d9 = get_varga_indices(current_lon)
+        
+        crossed = False
+        reason = ""
+        
+        if track_varga == "D1" and current_d1 != last_d1:
+            crossed = True
+            reason = f"D1 Ascendant Shift"
+        elif track_varga == "D9" and current_d9 != last_d9:
+            crossed = True
+            reason = f"D9 Ascendant Shift"
+            
+        if crossed:
+            snapshot = calculate_full_snapshot(current_utc, tz_offset, reason, run_lat, run_lon, run_alt)
+            all_outputs.extend(snapshot)
+            last_d1, last_d9 = current_d1, current_d9
+            
+        last_lon = current_lon
+        current_local += datetime.timedelta(minutes=1)
+        
+    return pd.DataFrame(all_outputs)
+
+def run_multi_day_batch(start_date_str, end_date_str, tz_offset, track_varga="D9", lat=None, lon=None, alt=None):
+    """Loops through a sequential date range to compile cross-over events."""
+    start = datetime.datetime.strptime(start_date_str, "%Y.%m.%d").date()
+    end = datetime.datetime.strptime(end_date_str, "%Y.%m.%d").date()
+    delta = end - start
     
     master_frames = []
-    
-    for current_date in date_list:
-        date_formatted = current_date.strftime("%Y.%m.%d")
-        # Reuse our established scanning logic per day
-        day_df = run_adaptive_market_scan_core(date_formatted, tz_offset, track_varga, target_lat, target_lon, target_alt)
+    for i in range(delta.days + 1):
+        date_loop_str = (start + datetime.timedelta(days=i)).strftime("%Y.%m.%d")
+        day_df = run_adaptive_market_scan(date_loop_str, tz_offset, track_varga, lat, lon, alt)
         if not day_df.empty:
             master_frames.append(day_df)
             
-    if master_frames:
-        return pd.concat(master_frames, ignore_index=True)
-    return pd.DataFrame()
+    return pd.concat(master_frames, ignore_index=True) if master_frames else pd.DataFrame()
 
 # =====================================================================
-# 4. RUNTIME AUTOMATION CONTROL
+# 4. EXECUTION CONTROL
 # =====================================================================
 if __name__ == "__main__":
-    TARGET_DATE = "2026.06.15"
-    TZ_OFFSET = 2.0  # Local time zone offset (GMT+2)
-    
-    # Change "D9" to "D1" if you only want to log when the major Rashi sign flips
-    df_market_log = run_adaptive_market_scan(TARGET_DATE, TZ_OFFSET, track_varga="D9")
-    
-    # Save results to disk
-    df_market_log.to_csv("final_output.csv", index=False)
-    
-    # Display preview rows
-    print(df_market_log[["Timestamp_Local", "Event", "Body", "D1_Sign", "D1_Deg", "D9_Sign", "D9_Deg"]].head(15).to_string(index=False))
+    # Example: Run a multi-day test range with custom geographic settings
+    df_results = run_multi_day_batch(
+        start_date_str="2026.06.15", 
+        end_date_str="2026.06.17", 
+        tz_offset=2.0, 
+        track_varga="D9",
+        lat=59.90870,   # Set to None to default to Oslo
+        lon=10.74779,
+        alt=25.0
+    )
+    print(df_results[["Timestamp_Local", "Event", "Body", "D1_Sign", "D1_Deg", "D9_Sign", "D9_Deg"]].head(10))

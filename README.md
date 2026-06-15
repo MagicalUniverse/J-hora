@@ -32,3 +32,5 @@ Ensure you have the Swiss Ephemeris C-library dependencies compiled for your env
  - Match Market to Birth   - Compute geometric arcs  - Find house lords
  - Flag/Color Ascendant    - Match special aspects   - Apply Bull/Bear 
    crossings Red             (e.g., Saturn 3/7/10)     scoring parameters
+
+   

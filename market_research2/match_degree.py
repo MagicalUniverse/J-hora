@@ -1,66 +1,46 @@
+import swisseph as swe
 import pandas as pd
-import numpy as np
+from datetime import datetime, timedelta
 
-def run_method_a_filter(csv_path="raw_market_session_ledger.csv"):
-    df_ledger = pd.read_csv(csv_path)
-    records = []
+swe.set_sid_mode(swe.SIDM_LAHIRI)
+RASHIS = ["Ar", "Ta", "Ge", "Cn", "Le", "Vi", "Li", "Sc", "Sg", "Cp", "Aq", "Pi"]
+
+NATAL_D1 = {"Sun": 51.41, "M": 297.14, "Mar": 19.48, "Mer": 73.42, "Jup": 90.87, "Ven": 87.46, "Sat": 348.45}
+NATAL_D9 = {k: (v * 9) % 360 for k, v in NATAL_D1.items()}
+
+def scan_full_transit(start_dt, days=5, orb=1.0):
+    rows = []
+    # Planets to scan
+    bodies = {"Sun": swe.SUN, "M": swe.MOON, "Mar": swe.MARS, "Mer": swe.MERCURY, 
+              "Jup": swe.JUPITER, "Ven": swe.VENUS, "Sat": swe.SATURN}
     
-    all_bodies = ["Ascendant", "Sun", "Moon", "Mars", "Mercury", "Venus", "Jupiter", "Saturn", "Rahu", "Ketu"]
-    
-    for idx, row in df_ledger.iterrows():
-        time_str = row["Time"]
-        
-        for m in all_bodies:
-            for b in all_bodies:
-                
-                # --- D1 LAYER: TRUNCATED INTEGER MATCH ---
-                m_d1_sign = int(row[f"M_{m}_D1_Sign"])
-                b_d1_sign = int(row[f"B_{b}_D1_Sign"])
-                
-                # Truncate degrees to pure integers (e.g., 27.4532 -> 27)
-                m_d1_deg_int = int(np.floor(row[f"M_{m}_D1_Deg"]))
-                b_d1_deg_int = int(np.floor(row[f"B_{b}_D1_Deg"]))
-                
-                if m_d1_sign == b_d1_sign and m_d1_deg_int == b_d1_deg_int:
-                    tag = "COLOR_RED_OBSERVE" if m == "Ascendant" else "ACTIONABLE_TREND_NODE"
-                    records.append({
-                        "Time": time_str,
-                        "System": "Method A (Whole Degree)",
-                        "Layer": "D1 Macro",
-                        "Market_Body": f"Market {m}",
-                        "Birth_Body": f"Birth {b}",
-                        "Matched_Sign": m_d1_sign,
-                        "Matched_Integer_Deg": m_d1_deg_int,
-                        "Status": tag
-                    })
-                
-                # --- D9 LAYER: TRUNCATED INTEGER MATCH ---
-                m_d9_sign = int(row[f"M_{m}_D9_Sign"])
-                b_d9_sign = int(row[f"B_{b}_D9_Sign"])
-                
-                m_d9_deg_int = int(np.floor(row[f"M_{m}_D9_Deg"]))
-                b_d9_deg_int = int(np.floor(row[f"B_{b}_D9_Deg"]))
-                
-                if m_d9_sign == b_d9_sign and m_d9_deg_int == b_d9_deg_int:
-                    tag = "COLOR_RED_OBSERVE" if m == "Ascendant" else "ACTIONABLE_TREND_NODE"
-                    records.append({
-                        "Time": time_str,
-                        "System": "Method A (Whole Degree)",
-                        "Layer": "D9 Micro",
-                        "Market_Body": f"Market {m}",
-                        "Birth_Body": f"Birth {b}",
-                        "Matched_Sign": m_d9_sign,
-                        "Matched_Integer_Deg": m_d9_deg_int,
-                        "Status": tag
-                    })
+    # Scan both Transiting D1 and D9 against both Natal D1 and D9
+    for trans_mode in ["d1", "d9"]:
+        for body_name, pid in bodies.items():
+            for nat_mode, nat_dict in [("d1", NATAL_D1), ("d9", NATAL_D9)]:
+                for nat_name, nat_deg in nat_dict.items():
+                    curr = start_dt
+                    in_orb, entry = False, None
                     
-    df_out = pd.DataFrame(records)
-    return df_out.drop_duplicates(subset=["Time", "Layer", "Market_Body", "Birth_Body"])
+                    while curr < start_dt + timedelta(days=days):
+                        jd = swe.julday(curr.year, curr.month, curr.day, curr.hour + curr.minute/60.0)
+                        pos, _ = swe.calc_ut(jd, pid, swe.FLG_SWIEPH | swe.FLG_SIDEREAL)
+                        
+                        # Calculate Transiting position (D1 or D9)
+                        trans_deg = pos[0] if trans_mode == "d1" else (pos[0] * 9) % 360
+                        
+                        if abs(trans_deg - nat_deg) <= (orb / 2):
+                            if not in_orb: in_orb, entry = True, curr
+                        elif in_orb:
+                            rows.append({
+                                "Trans": f"{trans_mode}-{body_name}",
+                                "Match": f"{nat_mode}-{nat_name}",
+                                "Entry": entry.strftime("%d %H:%M"),
+                                "Exit": curr.strftime("%d %H:%M")
+                            })
+                            in_orb = False
+                        curr += timedelta(minutes=2)
+    return pd.DataFrame(rows).sort_values("Entry")
 
-if __name__ == "__main__":
-    try:
-        df_a = run_method_a_filter()
-        print("\n--- METHOD A: WHOLE-DEGREE INTEGER MATCHES ---")
-        print(df_a.to_string(index=False))
-    except FileNotFoundError:
-        print("Error: Run transit_data_generator.py first.")
+df = scan_full_transit(datetime(2026, 6, 16))
+print(df.to_string(index=False))

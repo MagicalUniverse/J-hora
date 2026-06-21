@@ -1,5 +1,6 @@
 import swisseph as swe
-from datetime import timezone
+from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 # -----------------------------
 # CONFIG
@@ -7,7 +8,7 @@ from datetime import timezone
 swe.set_sid_mode(swe.SIDM_LAHIRI)
 swe.set_ephe_path('.')
 
-RASI = ["Ar","Ta","Ge","Cn","Le","Vi","Li","Sc","Sg","Cp","Aq","Pi"]
+RASI = ["Ar", "Ta", "Ge", "Cn", "Le", "Vi", "Li", "Sc", "Sg", "Cp", "Aq", "Pi"]
 
 PLANETS = {
     "Su": swe.SUN,
@@ -21,7 +22,8 @@ PLANETS = {
     "Ke": swe.MEAN_NODE
 }
 
-FLAGS = swe.FLG_SWIEPH | swe.FLG_SIDEREAL
+
+FLAGS = swe.FLG_SWIEPH | swe.FLG_SIDEREAL | swe.FLG_SPEED
 
 # -----------------------------
 # HELPERS
@@ -52,10 +54,7 @@ def nav(lon):
 def planet(jd, pid):
     xx, _ = swe.calc_ut(jd, pid, FLAGS)
     lon = xx[0]
-    
-    # CALCULATE D9 LON FOR DEGREES
     d9_lon = (lon * 9) % 360
-    
     return {
         "lon": lon,
         "d9_lon": d9_lon,
@@ -63,32 +62,44 @@ def planet(jd, pid):
     }
 
 def compute(dt, lat, lon):
-    utc = dt.astimezone(timezone.utc)
-    jd = swe.julday(utc.year, utc.month, utc.day, utc.hour + utc.minute/60 + utc.second/3600)
+    # Pass the timezone-aware datetime directly to julday
+    # Do not apply manual LMT correction; let swe.houses_ex handle the coordinate shift
+    utc_dt = dt.astimezone(timezone.utc)
+    jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, 
+                    utc_dt.hour + utc_dt.minute/60 + utc_dt.second/3600)
     
-    houses, ascmc = swe.houses_ex(jd, lat, lon, b'P', flags=FLAGS)
+    # Use 'S' (Sripathi) and strictly Topocentric calculation
+    # This aligns the Ascendant cusp with the geographic observation point
+    houses, ascmc = swe.houses_ex(jd, lat, lon, b'S', FLAGS)
     
-    return {
-        "utc": utc,
-        "asc": ascmc[0],
-        "planets": {k: planet(jd, v) for k, v in PLANETS.items()}
-    }
+    planets = {k: planet(jd, v) for k, v in PLANETS.items()}
+    
+    # Node logic
+    planets["Ke"]["lon"] = (planets["Ra"]["lon"] + 180) % 360
+    planets["Ke"]["d9_lon"] = (planets["Ke"]["lon"] * 9) % 360
+    
+    return {"utc": utc_dt, "asc": ascmc[0], "planets": planets}
 
 def print_chart(c):
     print("\nUTC:", c["utc"])
-    print("Lagna:", dms(c["asc"]))
+    asc_s, asc_d, asc_m, asc_sec = dms(c["asc"])
+    asc_d9_lon = (c['asc'] * 9) % 360
+    asc_d9_s, asc_d9_d, asc_d9_m, asc_d9_sec = dms(asc_d9_lon)
+    
+    print(f"Lagna: {asc_s} {asc_d:02d}°{asc_m:02d}'{asc_sec:02d}\" | D9: {asc_d9_s} {asc_d9_d:02d}°{asc_d9_m:02d}'{asc_d9_sec:02d}\"")
+
     print("\n--- NATAL PLANETS ---")
     for k, p in c["planets"].items():
         s, d, m, sec = dms(p["lon"])
-        d9_s, d9_d, d9_m, _ = dms(p["d9_lon"])
-        print(f"{k:>2}  {s:>2}  {d:02d}°{m:02d}'{sec:02d}\" | D9: {d9_s} {d9_d:02d}°{d9_m:02d}'")
+        d9_s, d9_d, d9_m, d9_sec = dms(p["d9_lon"])
+        
+        print(f"{k:>2}  {s:>2}  {d:02d}°{m:02d}'{sec:02d}\" | D9: {d9_s} {d9_d:02d}°{d9_m:02d}'{d9_sec:02d}\"")
 
-# Add this to the bottom of d1d9_core.py
+# -----------------------------
+# MAIN
+# -----------------------------
 if __name__ == "__main__":
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-    
-    # Test coordinates
-    test_dt = datetime(1995, 1, 28, 9, 0, 0, tzinfo=ZoneInfo("Europe/Oslo"))
+    # Standard Oslo time
+    test_dt = datetime(1995, 12, 28, 9, 0, 0, tzinfo=ZoneInfo("Europe/Oslo"))
     natal = compute(test_dt, 59.90870, 10.74779)
     print_chart(natal)

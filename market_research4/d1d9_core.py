@@ -82,3 +82,13 @@ def print_chart(c):
         s, d, m, sec = dms(p["lon"])
         d9_s, d9_d, d9_m, _ = dms(p["d9_lon"])
         print(f"{k:>2}  {s:>2}  {d:02d}°{m:02d}'{sec:02d}\" | D9: {d9_s} {d9_d:02d}°{d9_m:02d}'")
+
+# Add this to the bottom of d1d9_core.py
+if __name__ == "__main__":
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    # Test coordinates
+    test_dt = datetime(1995, 1, 28, 9, 0, 0, tzinfo=ZoneInfo("Europe/Oslo"))
+    natal = compute(test_dt, 59.90870, 10.74779)
+    print_chart(natal)

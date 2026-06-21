@@ -30,9 +30,10 @@ def run_analysis(transit_dt):
     engine.load(transit_dt, *LOCATION)
     
     show_chart(natal, "NATAL CHART")
-    engine.report() # Assuming this exists in TransitEngine
+    # Assuming your TransitEngine has a .report() or similar method
+    engine.report() 
 
 if __name__ == "__main__":
-    print(f"Swiss OK: {swe.version}")
+    print(f"Swiss Ephemeris Version: {swe.version}")
     target_date = datetime(2026, 6, 20, 9, 0, 0, tzinfo=ZoneInfo("Europe/Oslo"))
     run_analysis(target_date)

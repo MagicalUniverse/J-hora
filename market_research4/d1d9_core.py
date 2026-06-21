@@ -54,11 +54,20 @@ def nav(lon):
 def planet(jd, pid):
     xx, _ = swe.calc_ut(jd, pid, FLAGS)
     lon = xx[0]
-    d9_lon = (lon * 9) % 360
+    
+    # Correct D9 logic: 
+    # Navamsa is the 9th harmonic.
+    # We must map the 0-360 position into the 9th division.
+    d9_sign = nav(lon)
+    
+    # Calculate degree within the navamsa sign
+    # Each navamsa is 3°20' (3.333 degrees)
+    d9_deg_in_sign = (lon % 3.3333333333333335) * 9 
+    
     return {
         "lon": lon,
-        "d9_lon": d9_lon,
-        "d9_sign": nav(lon)
+        "d9_sign": d9_sign,
+        "d9_deg": d9_deg_in_sign
     }
 
 def compute(dt, lat, lon):

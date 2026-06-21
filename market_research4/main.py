@@ -19,10 +19,15 @@ def dms(lon):
     return RASI[sign], deg, m, s
 
 def show_chart(chart, title="CHART"):
-    print(f"\n=== {title} ===\nUTC: {chart['utc']}\nLagna: {dms(chart['asc'])}")
+    print(f"\n=== {title} ===\nUTC: {chart['utc']}\nLagna: {dms(chart['asc'])[0]} {dms(chart['asc'])[1]}°{dms(chart['asc'])[2]}'")
     for k, v in chart["planets"].items():
         s, d, m, sec = dms(v["lon"])
-        print(f"{k:>2}  {s:>2}  {d:02d}°{m:02d}'{sec:02d}\" | D9: {RASI[v['d9']]}")
+        # Calculate D-9 degrees/minutes
+        # Note: 'd9_lon' must be provided by your compute() function output
+        d9_lon = v.get("d9_lon", 0) 
+        d9_s, d9_d, d9_m, _ = dms(d9_lon)
+        
+        print(f"{k:>2}  {s:>2}  {d:02d}°{m:02d}'{sec:02d}\" | D9: {d9_s} {d9_d:02d}°{d9_m:02d}'")
 
 def run_analysis(transit_dt):
     natal = compute(NATAL_TIME, *LOCATION)

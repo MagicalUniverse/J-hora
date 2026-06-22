@@ -1,5 +1,23 @@
 import swisseph as swe
 from datetime import datetime, timezone
+import swisseph as swe
+
+def get_chart_data(dt, lat, lon):
+    # 1. Convert local time to UTC explicitly
+    # Assuming dt is already a timezone-aware datetime object
+    utc_dt = dt.astimezone(timezone.utc)
+    
+    # 2. Calculate Julian Day
+    jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, 
+                    utc_dt.hour + utc_dt.minute/60 + utc_dt.second/3600)
+    
+    # 3. Explicitly set Ayanamsa mode and force calculation
+    swe.set_sid_mode(swe.SIDM_LAHIRI)
+    
+    # ... your planet loop ...
+    # Inside your loop, you can now verify the shift:
+    # ayanamsa = swe.get_ayanamsa(jd)
+    return data
 
 RASI = ["Ar","Ta","Ge","Cn","Le","Vi","Li","Sc","Sg","Cp","Aq","Pi"]
 PLANETS = {"Su": swe.SUN, "Mo": swe.MOON, "Ma": swe.MARS, "Me": swe.MERCURY, 

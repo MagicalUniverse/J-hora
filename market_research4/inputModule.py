@@ -1,15 +1,13 @@
-from datetime import datetime, timezone
+# main_module.py
+from input_module import InputModule
+from transit_walker import TransitWalker
 
-class InputModule:
-    def __init__(self, dt_local, lat, lon):
-        self.dt_local = dt_local
-        self.lat = lat
-        self.lon = lon
-        
-    def get_context(self):
-        # Centralized settings
-        return {
-            "dt_local": self.dt_local,
-            "lat": self.lat,
-            "lon": self.lon
-        }
+# Everything is initialized here
+hub = InputModule(lat=57.1, lon=12.2, dt_birth=my_birth_dt)
+
+# Walker automatically picks up the hub's defaults
+walker = TransitWalker(hub)
+
+for timestamp, transit_chart in walker.walk():
+    # Compare transit_chart vs. birth_chart (from hub.dt_birth)
+    pass

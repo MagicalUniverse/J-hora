@@ -1,30 +1,5 @@
-# d1d9_core_modue.py
 import swisseph as swe
-from datetime import datetime, timezone
-import swisseph as swe
-
-# d1d9_core.py
-def get_chart_data(dt_local, input_data):
-    lat = input_data.lat
-    lon = input_data.lon
-    # ... rest of your calculation logic stays the same
-
-def get_chart_data(dt, lat, lon):
-    # 1. Convert local time to UTC explicitly
-    # Assuming dt is already a timezone-aware datetime object
-    utc_dt = dt.astimezone(timezone.utc)
-    
-    # 2. Calculate Julian Day
-    jd = swe.julday(utc_dt.year, utc_dt.month, utc_dt.day, 
-                    utc_dt.hour + utc_dt.minute/60 + utc_dt.second/3600)
-    
-    # 3. Explicitly set Ayanamsa mode and force calculation
-    swe.set_sid_mode(swe.SIDM_LAHIRI)
-    
-    # ... your planet loop ...
-    # Inside your loop, you can now verify the shift:
-    # ayanamsa = swe.get_ayanamsa(jd)
-    return data
+from datetime import timezone
 
 RASI = ["Ar","Ta","Ge","Cn","Le","Vi","Li","Sc","Sg","Cp","Aq","Pi"]
 PLANETS = {"Su": swe.SUN, "Mo": swe.MOON, "Ma": swe.MARS, "Me": swe.MERCURY, 
@@ -49,12 +24,17 @@ def get_nav(lon):
     nav_deg = (d % (30 / 9)) * 9
     return RASI[nav_sign], nav_deg
 
-def get_chart_data(dt_local, lat, lon):
+def get_chart_data(dt_local, input_hub):
+    """Calculates chart data using parameters from the Input Hub."""
     swe.set_sid_mode(swe.SIDM_LAHIRI)
-    dt_utc = dt_local.astimezone(timezone.utc)
-    jd = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, dt_utc.hour + dt_utc.minute/60)
     
-    cusps, ascmc = swe.houses_ex(jd, lat, lon, b'P', flags=swe.FLG_SIDEREAL)
+    # Standardize time to UTC
+    dt_utc = dt_local.astimezone(timezone.utc)
+    jd = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, 
+                    dt_utc.hour + dt_utc.minute/60 + dt_utc.second/3600)
+    
+    # Calculate houses and planets
+    cusps, ascmc = swe.houses_ex(jd, input_hub.lat, input_hub.lon, b'P', flags=swe.FLG_SIDEREAL)
     results = [("Lagna", ascmc[0])]
     
     planet_longs = {}
@@ -63,6 +43,5 @@ def get_chart_data(dt_local, lat, lon):
         planet_longs[k] = xx[0]
         results.append((k, xx[0]))
     
-    ke_lon = (planet_longs["Ra"] + 180) % 360
-    results.append(("Ke", ke_lon))
+    results.append(("Ke", (planet_longs["Ra"] + 180) % 360))
     return results

@@ -2,6 +2,12 @@ import swisseph as swe
 from datetime import datetime, timezone
 import swisseph as swe
 
+# d1d9_core.py
+def get_chart_data(dt_local, input_data):
+    lat = input_data.lat
+    lon = input_data.lon
+    # ... rest of your calculation logic stays the same
+
 def get_chart_data(dt, lat, lon):
     # 1. Convert local time to UTC explicitly
     # Assuming dt is already a timezone-aware datetime object

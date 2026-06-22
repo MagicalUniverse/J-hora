@@ -1,13 +1,14 @@
-# main_module.py
-from input_module import InputModule
-from transit_walker import TransitWalker
+from datetime import datetime, time
 
-# Everything is initialized here
-hub = InputModule(lat=57.1, lon=12.2, dt_birth=my_birth_dt)
-
-# Walker automatically picks up the hub's defaults
-walker = TransitWalker(hub)
-
-for timestamp, transit_chart in walker.walk():
-    # Compare transit_chart vs. birth_chart (from hub.dt_birth)
-    pass
+class InputModule:
+    def __init__(self, lat, lon, dt_birth, dt_transit_start=None):
+        self.lat = lat
+        self.lon = lon
+        self.dt_birth = dt_birth  # Fixed reference for scanning
+        
+        # Default: 09:00 on the day of entry if not provided
+        if dt_transit_start is None:
+            today = datetime.now().date()
+            self.dt_transit_start = datetime.combine(today, time(9, 0))
+        else:
+            self.dt_transit_start = dt_transit_start

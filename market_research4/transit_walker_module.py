@@ -1,26 +1,15 @@
-from datetime import timedelta
-from d1d9_core import get_chart_data
+# input_module.py
+from datetime import datetime, time
 
-class TransitWalker:
-    def __init__(self, start_dt, lat, lon):
-        self.start_dt = start_dt
+class InputModule:
+    def __init__(self, lat, lon, dt_birth, dt_transit_start=None):
         self.lat = lat
         self.lon = lon
-
-    def walk(self, duration_days=7, interval_minutes=5):
-        """
-        Generates chart data for a flexible duration and interval.
-        """
-        end_dt = self.start_dt + timedelta(days=duration_days)
-        current_dt = self.start_dt
-        delta = timedelta(minutes=interval_minutes)
+        self.dt_birth = dt_birth # Your birth chart reference
         
-        while current_dt < end_dt:
-            # Generate the chart snapshot
-            chart_snapshot = get_chart_data(current_dt, self.lat, self.lon)
-            
-            # Yield data to scanner
-            yield current_dt, chart_snapshot
-            
-            # Increment time
-            current_dt += delta
+        # Default transit start: 09:00 on the day of entry
+        if dt_transit_start is None:
+            today = datetime.now().date()
+            self.dt_transit_start = datetime.combine(today, time(9, 0))
+        else:
+            self.dt_transit_start = dt_transit_start

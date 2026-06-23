@@ -1,14 +1,22 @@
-# transit_scanner_module.py
+# scanner_module.py
+
 class TransitScanner:
-    def __init__(self, birth_chart_data, orb=1.0):
-        self.birth_chart = birth_chart_data
-        self.orb = orb # The allowed margin of error (degrees)
+    def __init__(self, birth_chart, orb=1.0):
+        self.birth_chart = birth_chart
+        self.orb = orb
 
     def scan(self, transit_chart):
-        alerts = []
+        """
+        Calculates if a transit body is conjunct a birth body.
+        The modulo logic handles the 360-degree boundary.
+        """
+        matches = []
         for b_name, b_lon in self.birth_chart:
             for t_name, t_lon in transit_chart:
-                # Simple degree-based check (or your specific logic)
-                if abs(b_lon - t_lon) < self.orb:
-                    alerts.append(f"{t_name} is conjunct {b_name}")
-        return alerts
+                # Calculate shortest angular distance
+                diff = abs(b_lon - t_lon) % 360
+                distance = min(diff, 360 - diff)
+                
+                if distance < self.orb:
+                    matches.append((t_name, b_name, b_lon, t_lon))
+        return matches

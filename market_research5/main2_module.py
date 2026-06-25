@@ -1,5 +1,3 @@
-
-
 # ============================================================
 # NOTE (IMPORTANT FOR ALL AI ASSISTANTS / FUTURE CHATS)
 #
@@ -12,40 +10,31 @@
 #
 # - DO NOT REPLACE NAVAMSHA LOGIC WITHOUT JHORA CROSS CHECK
 # ============================================================
-
 # ============================================================
 # SCRIPT NAME: main2_module.py
-# VERSION: 1.4.6
-# QUALITY CHECKED: Passing JHORA_REFERENCE to validator
+# VERSION: 1.5.2
+# 
+# REQUIREMENTS:
+# 1. Orchestrate chart calculations from d1d9_core_module.
+# 2. Maintain strict D1/D9 symmetry in printed output.
+# 3. Validate birth chart against JHORA_REFERENCE via jhora_validator.
+# 4. Trigger transit_walker_module to record 5-min interval
+#    transit data to a CSV file.
+# 5. Avoid patching: logic must remain in modular, standalone files.
 # ============================================================
 
 import importlib
 import sys
 from datetime import timedelta
-
-# --- DEPENDENCY LOAD ---
-try:
-    import input_module
-    importlib.reload(input_module)
-    from input_module import InputModule
-except ImportError as e:
-    print(f"CRITICAL: 'input_module.py' not found. {e}")
-    sys.exit(1)
-
-try:
-    from d1d9_core_module import get_chart_data
-except ImportError as e:
-    print(f"CRITICAL: 'd1d9_core_module.py' not found. {e}")
-    sys.exit(1)
-
-jhora_validator = None
-try:
-    import jhora_validator
-    importlib.reload(jhora_validator)
-except ImportError:
-    print("NOTE: 'jhora_validator.py' not found.")
+from input_module import InputModule
+from d1d9_core_module import get_chart_data
+import transit_walker_module
+import jhora_validator
 
 def format_row(row):
+    """
+    Maintains strict D1/D9 symmetry: Deg° Sign M'S''
+    """
     d1_val = row.get('d1_deg', '')
     d1_parts = d1_val.split(' ', 1)
     d1_deg = d1_parts[0]
@@ -71,6 +60,7 @@ def run():
     
     print(f"Birth Time: {cfg.dt_birth.strftime('%Y-%m-%d %H:%M')}")
     
+    # 1. Print Reports
     for label, date in [("BIRTH CHART", cfg.dt_birth), 
                         (f"TRANSIT START ({t_start_dt.strftime('%Y-%m-%d')})", t_start_dt),
                         (f"TRANSIT END ({end_dt.strftime('%Y-%m-%d')})", end_dt)]:
@@ -83,9 +73,14 @@ def run():
         for row in chart_data:
             print(format_row(row))
             
-        # Passing JHORA_REFERENCE as the second argument to 'validate'
-        if label == "BIRTH CHART" and jhora_validator:
+        # Run validation only on the Birth Chart
+        if label == "BIRTH CHART":
             jhora_validator.validate(chart_data, cfg.JHORA_REFERENCE)
+
+    # 2. Trigger Transit Walker for CSV File Generation
+    print("\n[INFO] Starting transit walker...")
+    transit_walker_module.run_transit_walk(cfg)
+    print("[INFO] Transit sequence generation complete.")
 
 if __name__ == "__main__":
     run()
